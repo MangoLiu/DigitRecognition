@@ -26,8 +26,7 @@ public class Pretreated {
 		for (number = 0; number < 10; number++) {
 			src = "original/" + number;
 			dis = "goal";
-			//finalDis = "D:/软件安装/eclipse/DigitRecognition/finalgoal";// 最终处理后的txt文件夹;
-
+			
 			f = new File(src);
 			list = f.listFiles();
 			fileNum = list.length;
