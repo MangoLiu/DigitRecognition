@@ -1,0 +1,265 @@
+
+  ===========数字识别系统基本构思==========
+1 获得大量数字的图片，包括0---9的，每个至少100/200...张？
+       1.1源于网络
+2 获得图片处理工具（或处理方法），将图片处理成大小一致的黑白图片
+       2.1 来源于网络的工具
+       2.2 最好自己来写，将图片处理为黑白图片
+       2.3 利用windows自带的画图工具，通过另存为就可以保存为位图。
+3 将图片批处理为长度一致的二进制的文本文件。
+4 编写代码：主要是训练集的处理
+5 测试集验证。
+                    
+
+===============主要问题==================
+收集黑底白字和白底黑字的各N张，当做训练集。（处理成二值图以后：有黑底白字、白底黑字两种情形。可以各N/2张，当做训练集。）
+java怎样读取图片？（BufferedImage或以数据流的方式读入。）
+读取图片后，它是怎么样存储的？是否有文件头之类的，需要特殊处理的信息？如何将图片转换成指定的大小？（前54个字节是固定的，但我们可以使用BufferedImage自带的功能将图片处理为大小一致的图片）
+怎样将图片二值化处理？niblack算法，是比较简单经典处理二值化的算法。
+采用何种方式进行训练？K-近邻
+测量测试图片与训练图片的距离。
+
+================记录=====================
+1 将图片转成单色位图之后，用文本编辑器打开之后，并不是像想象那样只有0和1，而是这样：
+"424d 7e96 0000 0000 0000 3e00 0000 2800
+0000 f401 0000 5902 0000 0100 0100 0000
+0000 4096 0000 c40e 0000 c40e 0000 0000
+0000 0000 0000 0000 0000 ffff ff00 0000
+0000 0000 0000 0002 0000 0000 0006 0000
+...
+"
+试图通过编写一个小程序，将非0全部处理为1，再看看效果。期望：能打开并显示一个纯黑白的图片。结果：画图工具无法打开....
+我将单色位图用文本编辑器打开后，删除中间的一个区间的内容。期望：依然能打开，只是原图片缺少部分。结果：画图工具无法打开....
+(解：这里并不是按照二进制来显示的。按照在单色图中，每8位占一个字节，可以看出上面每两个数字占用一个字节。即42是一个字节，其代表的的是一个8位的01序列，4d代表一个字节....)
+
+2 读取的byte[14]（即文件头，14字节）为66 77 126 -106 0 0 0 0 0 0 62 0 0 0 
+但和上面所示的将bmp打开后看到的："
+424d 7e96 0000 0000 0000 3e00 0000 2800
+0000 f401 0000 5902 0000 0100 0100 0000
+0000 4096 0000 c40e 0000 c40e 0000 0000
+0000 0000 0000 0000 0000 ffff ff00 0000
+0000 0000 0000 0002 0000 0000 0006 0000
+0000 0000 0000 0000 0000 0000 0000 0000
+...." 对应不上？！
+（解：由上面我们知道42是一个字节，即读取的一个byte，对应的二进制为01000010，而这个8位二进制对应的的数字是64+2=66。同理，46--->01001101--->77
+至于-106，是因为java byte的范围是-128---127,8位中最前一位是符号位，96对应的8位二进制为10010110，能看出其为负，对后7位进行补码操作（取反加1）为11101010，第一位代表负，后七位为64+32+8+2=106，故为-106。）
+
+3 读取出来的是byte，我们怎样才能将一个byte转化成8位的二进制01码？（要考虑为负的情形）
+例如将上述文件第一行转化成：
+0100001001001101 0111111010010110 0000000000000000 0000000000000000 0000000000000000 ....
+0100001001001101 0111111000000110
+(解：在gist上找到一个答案，很好： )
+  public static String byte2bits(byte b) {
+    int z = b; 
+    z |= 256;
+    String str = Integer.toBinaryString(z);
+    int len = str.length();
+    return str.substring(len-8, len);
+    }
+
+4 DataInputStream中不存在hasNextByte()的方法，又无法将byte和null进行比较，又不知道文件有多长。
+因此，这个逐个处理byte为01码的外层while如何写？！
+（解：试图获得数据内容的长度，然后以byte数组保存，数组长度是确认的，因为在这步处理之前，我们会先将图片处理成指定大小的图片）
+
+5 想逐个遍历byte，然后将它们对应的01码写出，但输出的文件为空？！
+  String path = "input.bmp";
+    FileInputStream fis = new java.io.FileInputStream(path);
+    DataInputStream dis = new java.io.DataInputStream(fis);
+    Scanner sc = new Scanner(dis);
+    String name = path.substring(0,path.indexOf("."));
+    FileWriter fw = new FileWriter(new File(name+".txt"));
+    BufferedWriter bw = new BufferedWriter(fw);
+    
+    while(sc.hasNextByte()){
+      bw.write(byte2bits(sc.nextByte()));
+    }
+    bw.close();
+
+    ----dedug--
+    while(sc.hasNextByte()){
+      byte b = sc.nextByte();
+      System.out.print(b);
+      bw.write(byte2bits(b));
+    } //发现没有打印任何东西，证明没有读取到内容。
+
+  （解：
+  String path = "pike.bmp";
+    FileInputStream fis = new FileInputStream(path);
+    DataInputStream dis = new DataInputStream(fis);
+    int bilen=14; //data lenth                    
+        byte bi[]=new byte[bilen];  
+        dis.read(bi,0,bilen);
+        
+    String name = path.substring(0, path.indexOf("."));
+    FileWriter fw = new FileWriter(new File(name + "out.txt"));
+    BufferedWriter bw = new BufferedWriter(fw);
+    
+    for (int i = 0; i < bilen; i++) {
+      bw.write(byte2bits(bi[i]) + " ");
+    }
+    bw.close();）
+
+6 如何图片处理成为指定大小的规格？！
+（解：public static void resizeImage(String srcImgPath, String distImgPath,  int width, int height) throws IOException {    
+        File srcFile = new File(srcImgPath);  
+        Image srcImg = ImageIO.read(srcFile);  
+        BufferedImage buffImg = null;  
+        buffImg = new BufferedImage(width, height, BufferedImage.TYPE_BYTE_BINARY);  
+        buffImg.getGraphics().drawImage( 
+                srcImg.getScaledInstance(width, height, Image.SCALE_SMOOTH), 0,  0, null);     
+        ImageIO.write(buffImg, "BMP", new File(distImgPath));     
+    }  ）
+
+7 处理两个纯01文本文件，比较两者的距离？！
+（解：利用DataInputStream 将文件读取到byte[]中，然后利用异或操作进行统计）
+
+8 批量处理一个文件夹下的所有图片： 处理成指定大小。并将处理的结果输出到指定的文件夹下。（以及二值化处理）？！
+查询指定文件夹下有多少个文件，并记录。测试时：
+// test,newtest是一个文件夹，和.project文件在同一目录下。
+    String path = "test";//当这个字符串是一个文件夹 的时候，java可以通过listFiles来放到一个list中
+    File f = new File(path);//path可以可以是单个文件，也可以是文件夹名。
+    File[] list = f.listFiles();
+    int fileNum = list.length;
+//可以读取test中的文件数为2
+但是当真正放到代码中时，报空指针错误？！！
+String src = "original";//原始图片文件夹
+  String dis ="goal";//处理后的图片文件夹
+   ...
+  File f=new File(src); 
+    File[] list=f.listFiles();        
+    int fileNum = list.length;//报空指针错误
+（解：不知道为何之前用相对路径没有问题，在这里出问题了
+  但将其写为绝对路径就没有问题了：
+  String src = "D:/软件安装/eclipse/mango.d.liu/original";// 原始图片文件夹
+  String dis = "D:/软件安装/eclipse/mango.d.liu/goal";// 处理后的图片文件夹
+
+ 原因是之前写的时候是在mango.d.liu下，而运行的时候是在Digit Recognition，找不到文件，必然为null。
+ 跟绝对路径，相对路径没有关系。
+）
+
+
+//注：包含处理成指定大小图片 以及 指定大小图片的01格式文本。
+
+9 每个01文本要记录这个文本原本的值，不然比较之后不知道它是那个数字。怎么记录？？！！
+（解：可以用文件名来表示它的信息，如1_1.txt  1_2.txt 分别表示训练集1的第一个，第二个样本。）
+
+10 批处理还应包括将一个文件夹下的文本的名字进行改写，如改写成1_1.bmp,1_2.bmp.....
+这样的好处就是清晰和标识出文本内容。
+
+11 二值化处理niblack算法其实不用实现，只需利用之前所写的该边图片大小的函数，它就可以把其他格式的图片转换成单色位的bmp图。但应该注意：
+public static void resizeImage(String srcImgPath, String distImgPath, int width,  //---------1
+      int height) throws IOException {
+    File srcFile = new File(srcImgPath);
+    Image srcImg = ImageIO.read(srcFile);
+    BufferedImage buffImg = null;
+    buffImg = new BufferedImage(width, height,
+        BufferedImage.TYPE_BYTE_BINARY);//---------2
+    buffImg.getGraphics().drawImage(
+        srcImg.getScaledInstance(width, height, Image.SCALE_SMOOTH), 0,
+        0, null);
+    ImageIO.write(buffImg, "bmp", new File(distImgPath));//---------3
+  }
+若是将1处的distImgPath写为1.bmp，3处写为jpg，虽然2处是BufferedImage.TYPE_BYTE_BINARY，但是系统也也会认为它是24位的bmp。
+必须将1,3处都写为bmp，并且2处为BufferedImage.TYPE_BYTE_BINARY才能真正地转换成单色位的bmp。
+
+12 当我把一些从网络下的的图片（非bmp格式）放在待处理文件夹下，发生Exception in thread "main" javax.imageio.IIOException: Can not read input file!   ？？！！
+（解：如10所言，我们需要把图片按照内容分批处理，因此需放在不同的文件夹下，但代码里面显示了不同文件夹的处理，但在文件系统中忘记建立不同的文件夹....）
+
+13 其实K-近邻只是一个思想，相同而且也不错的有：
+    13.1 比较平均值：待分析图片和分别每个训练集中的文本进行比对，找到平均值最小的那个文件集，认为它就是图片要表示的。
+    13.2  最优N比较平均值：取每个文件集中最好的N个的平均数（N可以为1）。
+
+14 关于最后比对距离的处理：
+14.0 将训练集文件都读到list中。
+14.1 用一个int[文件总数]数组 record来记录对应关系，record[i] = 9 代表第i个文件的内容是9（不然用list的位置遍历处理也可以，只不过list是链式结果，速度较慢。）
+14.2 用一个int[文件总数]数组 result来记录距离，然后去result的colne进行排序，得到第k大的数。
+14.3 用这个k去result中去逐个比对，比k小的，按照对应关系，去record中得到内容。
+14.4 用一个int[10]的数组来进行统计。
+
+
+15 每个文件的长度不一定都相等，有的多了个空格。需要统一化处理，是待求解的图片和训练的图片的01文本是相同长度。
+16 需要将各个因环境或是运行有关的参数提取出来。
+17 将绝对路径改为相对路径。
+
+
+
+
+注意=====
+1  尽可能不使用中空的数字，因为训练集中比较少。
+2  尽可能使数字在中间，因为训练集有限。
+3 背景的复杂程度对检测的结果影响很大，尽量是单色背景的图片。
+4 同一个数字因为有手写体，打印体，电子显示器体...等不同形式，解决的方式是通过收集不同的训练集来训练。
+5 数字尽可能充满整个图片，占图片的百分比越小越难检测。
+6 理论上，测试集和训练集应该没有交集，但由于数量有点多，可能会有些交集，测试时注意下。
+
+
+BMP知识=====
+      BMP（全称Bitmap）是Window操作系统中的标准图像文件格式。它采用位映射存储格式，除了图像深度可选以外，不采用其他任何压缩，因此，BMP文件所占用的空间很大。BMP文件的图像深度可选lbit、4bit、8bit及24bit。BMP文件存储数据时，图像的扫描方式是按从左到右、从下到上的顺序。
+
+      典型的BMP图像文件由四部分组成：
+      1：位图头文件（14字节）。
+      2：位图信息头（40字节）。
+      3：调色板，这个部分是可选的。
+      4：位图数据。
+
+      1：BMP文件组成
+BMP文件由文件头、位图信息头、颜色信息和图形数据四部分组成。
+
+2：BMP文件头（14字节）
+BMP文件头数据结构含有BMP文件的类型、文件大小和位图起始位置等信息。
+其结构定义如下：
+typedef struct tagBITMAPFILEHEADER
+{
+    WORD bfType; // 位图文件的类型，必须为BM(1-2字节）
+    DWORD bfSize; // 位图文件的大小，以字节为单位（3-6字节）
+    WORD bfReserved1; // 位图文件保留字，必须为0(7-8字节）
+    WORD bfReserved2; // 位图文件保留字，必须为0(9-10字节）
+    DWORD bfOffBits; // 位图数据的起始位置，以相对于位图（11-14字节）
+    // 文件头的偏移量表示，以字节为单位
+} BITMAPFILEHEADER;
+
+3：位图信息头（40字节）
+BMP位图信息头数据用于说明位图的尺寸等信息。
+typedef struct tagBITMAPINFOHEADER{
+    DWORD biSize; // 本结构所占用字节数（15-18字节）
+    LONG biWidth; // 位图的宽度，以像素为单位（19-22字节）
+    LONG biHeight; // 位图的高度，以像素为单位（23-26字节）
+    WORD biPlanes; // 目标设备的级别，必须为1(27-28字节）
+    WORD biBitCount;// 每个像素所需的位数，必须是1（双色），（29-30字节）
+    DWORD biCompression; // 位图压缩类型，必须是 0（不压缩），（31-34字节）
+    DWORD biSizeImage; // 位图的大小，以字节为单位（35-38字节）
+    LONG biXPelsPerMeter; // 位图水平分辨率，每米像素数（39-42字节）
+    LONG biYPelsPerMeter; // 位图垂直分辨率，每米像素数（43-46字节)
+    DWORD biClrUsed;// 位图实际使用的颜色表中的颜色数（47-50字节）
+    DWORD biClrImportant;// 位图显示过程中重要的颜色数（51-54字节）
+} BITMAPINFOHEADER;
+
+4：颜色表
+颜色表用于说明位图中的颜色，它有若干个表项，每一个表项是一个RGBQUAD类型的结构，定义一种颜色。RGBQUAD结构的定义如下：
+typedef struct tagRGBQUAD {
+    BYTE rgbBlue;// 蓝色的亮度（值范围为0-255)
+    BYTE rgbGreen; // 绿色的亮度（值范围为0-255)
+    BYTE rgbRed; // 红色的亮度（值范围为0-255)
+    BYTE rgbReserved;// 保留，必须为0
+} RGBQUAD;
+
+颜色表中RGBQUAD结构数据的个数有biBitCount来确定：
+当biBitCount=1,4,8时，分别有2,16,256个表项；
+当biBitCount=24时，没有颜色表项。
+位图信息头和颜色表组成位图信息，BITMAPINFO结构定义如下：
+typedef struct tagBITMAPINFO {
+    BITMAPINFOHEADER bmiHeader; // 位图信息头
+    RGBQUAD bmiColors[1];    // 颜色表
+} BITMAPINFO;
+
+5：位图数据
+位图数据记录了位图的每一个像素值，记录顺序是在扫描行内是从左到右，扫描行之间是从下到上。位图的一个像素值所占的字节数：
+当biBitCount=1时，8个像素占1个字节；
+当biBitCount=4时，2个像素占1个字节；
+当biBitCount=8时，1个像素占1个字节；
+当biBitCount=24时，1个像素占3个字节；
+Windows规定一个扫描行所占的字节数必须是，不足的以0填充，biSizeImage = ((((bi.biWidth * bi.biBitCount) + 31) & ~31) / 8) * bi.biHeight;
+
+BufferedImage 知识 ========
+BufferedImage是Image的一个子类，BufferedImage生成的图片在内存里有一个图像缓冲区，利用这个缓冲区我们可以很方便的操作这个图片，通常用来做图片修改操作如大小变换、图片变灰、设置图片透明或不透明等。
+BufferedImage bufferedImage = ImageIO.read(new FileInputStream(filePath)); 
